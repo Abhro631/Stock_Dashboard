@@ -1,7 +1,4 @@
-import { useState, useCallback, useRef, useEffect } from "react";
-
-// Points to Vercel's own API — no separate backend needed!
-const BACKEND_URL = "";
+import { useState, useCallback, useRef } from "react";
 
 const DEFAULT_WATCHLIST = ["ADANIPOWER", "ABCCAPITAL", "ASHOKLEY", "BLINVEST"];
 
@@ -49,6 +46,15 @@ function pctChange(row) {
   return ((close - prev) / prev) * 100;
 }
 
+function getNseUrl() {
+  const now = new Date();
+  now.setDate(now.getDate() - 1);
+  const dd = String(now.getDate()).padStart(2, "0");
+  const mm = String(now.getMonth() + 1).padStart(2, "0");
+  const yyyy = now.getFullYear();
+  return `https://archives.nseindia.com/products/content/sec_bhavdata_full_${dd}${mm}${yyyy}.csv`;
+}
+
 export default function App() {
   const [data, setData] = useState(null);
   const [watchlist, setWatchlist] = useState(DEFAULT_WATCHLIST);
@@ -57,46 +63,17 @@ export default function App() {
   const [newStock, setNewStock] = useState("");
   const [search, setSearch] = useState("");
   const [fileName, setFileName] = useState(null);
-  const [loading, setLoading] = useState(true);
-  const [error, setError] = useState("");
-  const [lastFetch, setLastFetch] = useState(null);
   const fileRef = useRef();
-
-  const loadFromBackend = useCallback(async () => {
-    setLoading(true);
-    setError("");
-    try {
-      const res = await fetch(`/api/bhav`);
-      const json = await res.json();
-      if (!json.success) throw new Error(json.error || "Backend error");
-      const rows = parseCSV(json.csv);
-      const map = {};
-      rows.forEach((r) => { if (r.SYMBOL) map[r.SYMBOL.trim()] = r; });
-      setData(map);
-      setFileName(json.url.split("/").pop());
-      setLastFetch(new Date().toLocaleTimeString("en-IN"));
-      const sample = Object.values(map)[0];
-      if (sample?.DATE1) setDate(sample.DATE1);
-    } catch (e) {
-      setError(e.message);
-    }
-    setLoading(false);
-  }, []);
-
-  // Auto-load on page open
-  useEffect(() => { loadFromBackend(); }, [loadFromBackend]);
 
   const processFile = useCallback((file) => {
     if (!file) return;
     setFileName(file.name);
-    setError("");
     const reader = new FileReader();
     reader.onload = (e) => {
       const rows = parseCSV(e.target.result);
       const map = {};
       rows.forEach((r) => { if (r.SYMBOL) map[r.SYMBOL.trim()] = r; });
       setData(map);
-      setLastFetch(new Date().toLocaleTimeString("en-IN"));
       const sample = Object.values(map)[0];
       if (sample?.DATE1) setDate(sample.DATE1);
     };
@@ -117,172 +94,175 @@ export default function App() {
 
   const removeStock = (sym) => setWatchlist(watchlist.filter((s) => s !== sym));
   const filtered = watchlist.filter((s) => s.includes(search.toUpperCase()));
-
   const found = data ? filtered.filter((s) => data[s]).length : 0;
   const notFound = data ? filtered.filter((s) => !data[s]).length : 0;
   const highDelivery = data ? filtered.filter((s) => data[s] && parseFloat(data[s].DELIV_PER) >= 50).length : 0;
+  const nseUrl = getNseUrl();
 
-  const styles = {
-    app: { minHeight: "100vh", background: "#09090b", color: "#e4e4e7", fontFamily: "'DM Mono', 'Fira Mono', 'Courier New', monospace", padding: 0 },
-    header: { borderBottom: "1px solid #27272a", padding: "20px 32px", display: "flex", alignItems: "center", justifyContent: "space-between", background: "#09090b", position: "sticky", top: 0, zIndex: 10 },
-    dot: { width: 10, height: 10, borderRadius: "50%", background: loading ? "#facc15" : error ? "#ef4444" : "#22c55e", boxShadow: `0 0 8px ${loading ? "#facc15" : error ? "#ef4444" : "#22c55e"}`, animation: "pulse 2s infinite" },
-    title: { fontSize: 18, fontWeight: 700, letterSpacing: "0.08em", color: "#fafafa", textTransform: "uppercase" },
-    badge: { fontSize: 11, background: "#18181b", border: "1px solid #3f3f46", padding: "3px 10px", borderRadius: 4, color: "#a1a1aa", letterSpacing: "0.05em" },
+  const S = {
+    app: { minHeight: "100vh", background: "#09090b", color: "#e4e4e7", fontFamily: "'DM Mono','Fira Mono','Courier New',monospace" },
+    header: { borderBottom: "1px solid #27272a", padding: "18px 32px", display: "flex", alignItems: "center", justifyContent: "space-between", background: "#09090b", position: "sticky", top: 0, zIndex: 10 },
+    title: { fontSize: 17, fontWeight: 700, letterSpacing: "0.08em", color: "#fafafa", textTransform: "uppercase" },
+    dot: { width: 9, height: 9, borderRadius: "50%", background: data ? "#22c55e" : "#3f3f46", boxShadow: data ? "0 0 8px #22c55e" : "none", animation: "pulse 2s infinite", marginRight: 10 },
+    badge: { fontSize: 11, background: "#18181b", border: "1px solid #3f3f46", padding: "3px 10px", borderRadius: 4, color: "#a1a1aa" },
     body: { padding: "28px 32px", maxWidth: 1400, margin: "0 auto" },
     btn: { background: "#22c55e", color: "#052e16", border: "none", borderRadius: 6, padding: "8px 18px", cursor: "pointer", fontWeight: 700, fontSize: 13, fontFamily: "inherit", letterSpacing: "0.04em" },
     btnSm: { background: "transparent", border: "1px solid #3f3f46", color: "#71717a", borderRadius: 4, padding: "2px 8px", cursor: "pointer", fontSize: 11, fontFamily: "inherit" },
     input: { background: "#18181b", border: "1px solid #3f3f46", borderRadius: 6, padding: "8px 14px", color: "#e4e4e7", fontSize: 13, outline: "none", fontFamily: "inherit", flex: 1, minWidth: 140 },
-    row: { display: "flex", gap: 12, marginBottom: 24, flexWrap: "wrap" },
+    row: { display: "flex", gap: 12, marginBottom: 20, flexWrap: "wrap" },
     tableWrap: { overflowX: "auto", borderRadius: 8, border: "1px solid #27272a" },
     table: { width: "100%", borderCollapse: "collapse", fontSize: 13 },
     th: { padding: "10px 14px", textAlign: "left", background: "#111113", color: "#52525b", fontWeight: 600, letterSpacing: "0.06em", fontSize: 11, borderBottom: "1px solid #27272a", whiteSpace: "nowrap", textTransform: "uppercase" },
-    td: { padding: "11px 14px", borderBottom: "1px solid #18181b", whiteSpace: "nowrap", verticalAlign: "middle", color: "#ffffff" },
-    signal: (bg, color) => ({ display: "inline-block", background: bg, color, border: `1px solid ${color}33`, borderRadius: 4, fontSize: 10, padding: "2px 7px", marginRight: 4, fontWeight: 600, letterSpacing: "0.05em" }),
-    notFound: { color: "#52525b", fontStyle: "italic" },
+    td: { padding: "11px 14px", borderBottom: "1px solid #18181b", whiteSpace: "nowrap", verticalAlign: "middle", color: "#fff" },
+    signal: (bg, color) => ({ display: "inline-block", background: bg, color, border: `1px solid ${color}33`, borderRadius: 4, fontSize: 10, padding: "2px 7px", marginRight: 4, fontWeight: 600 }),
+    notFound: { color: "#3f3f46", fontStyle: "italic" },
     pct: (v) => ({ color: v >= 0 ? "#22c55e" : "#ef4444", fontWeight: 600 }),
-    summaryGrid: { display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(160px, 1fr))", gap: 12, marginBottom: 24 },
+    summaryGrid: { display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(150px, 1fr))", gap: 12, marginBottom: 24 },
     card: { background: "#111113", border: "1px solid #27272a", borderRadius: 8, padding: "14px 18px" },
-    cardLabel: { fontSize: 11, color: "#52525b", textTransform: "uppercase", letterSpacing: "0.06em" },
-    cardVal: { fontSize: 22, fontWeight: 700, marginTop: 4 },
-    dropzone: { border: `2px dashed ${dragging ? "#22c55e" : "#27272a"}`, borderRadius: 8, padding: "20px 24px", textAlign: "center", cursor: "pointer", background: dragging ? "#052e16" : "#0a0a0c", transition: "all 0.2s", marginBottom: 20 },
   };
 
   return (
-    <div style={styles.app}>
+    <div style={S.app}>
       <style>{`
         @import url('https://fonts.googleapis.com/css2?family=DM+Mono:wght@400;500&display=swap');
         @keyframes pulse { 0%,100%{opacity:1} 50%{opacity:0.4} }
-        @keyframes spin { to { transform: rotate(360deg); } }
         tr:hover td { background: #111113 !important; }
         input:focus { border-color: #22c55e !important; }
         button:hover { opacity: 0.85; }
       `}</style>
 
       {/* Header */}
-      <div style={styles.header}>
-        <div style={{ display: "flex", alignItems: "center", gap: 12 }}>
-          <div style={styles.dot} />
-          <span style={styles.title}>NSE Bhav Dashboard</span>
+      <div style={S.header}>
+        <div style={{ display: "flex", alignItems: "center" }}>
+          <div style={S.dot} />
+          <span style={S.title}>NSE Bhav Dashboard</span>
         </div>
-        <div style={{ display: "flex", gap: 8, alignItems: "center" }}>
-          {date && <span style={styles.badge}>📅 {date}</span>}
-          {lastFetch && <span style={styles.badge}>🔄 {lastFetch}</span>}
-          <span style={styles.badge}>{watchlist.length} stocks</span>
-          <button style={{ ...styles.btn, padding: "6px 14px", fontSize: 12 }} onClick={loadFromBackend} disabled={loading}>
-            {loading ? "⏳" : "🔄 Refresh"}
-          </button>
+        <div style={{ display: "flex", gap: 8 }}>
+          {date && <span style={S.badge}>📅 {date}</span>}
+          {fileName && <span style={S.badge}>📂 {fileName}</span>}
+          <span style={S.badge}>{watchlist.length} stocks</span>
         </div>
       </div>
 
-      <div style={styles.body}>
+      <div style={S.body}>
 
-        {/* Status bar */}
-        {loading && (
-          <div style={{ background: "#111113", border: "1px solid #27272a", borderRadius: 8, padding: "16px 20px", marginBottom: 20, color: "#facc15", fontSize: 13 }}>
-            ⏳ Fetching latest NSE Bhav data automatically...
-          </div>
-        )}
-        {error && (
-          <div style={{ background: "#1c0a00", border: "1px solid #f9741633", borderRadius: 8, padding: "16px 20px", marginBottom: 20 }}>
-            <div style={{ color: "#f97316", fontSize: 13, marginBottom: 8 }}>⚠️ Backend error: {error}</div>
-            <div style={{ color: "#71717a", fontSize: 12 }}>Backend may not be deployed yet. Upload CSV manually below.</div>
-          </div>
-        )}
-        {data && !loading && (
-          <div style={{ background: "#052e16", border: "1px solid #22c55e33", borderRadius: 8, padding: "12px 20px", marginBottom: 20, color: "#22c55e", fontSize: 12 }}>
-            ✅ Data auto-loaded from NSE — <span style={{ fontFamily: "monospace" }}>{fileName}</span>
-          </div>
-        )}
+        {/* Download + Drop — side by side */}
+        <div style={{ display: "grid", gridTemplateColumns: "1fr 2fr", gap: 16, marginBottom: 24 }}>
 
-        {/* Summary cards */}
+          {/* Step 1 — Download */}
+          <div style={{ background: "#111113", border: "1px solid #27272a", borderRadius: 8, padding: "20px 24px", display: "flex", flexDirection: "column", justifyContent: "center", gap: 12 }}>
+            <div style={{ fontSize: 11, color: "#52525b", textTransform: "uppercase", letterSpacing: "0.06em" }}>Step 1 — Download</div>
+            <a
+              href={nseUrl}
+              target="_blank"
+              rel="noreferrer"
+              style={{ ...S.btn, textDecoration: "none", fontSize: 15, padding: "12px 24px", display: "inline-block", textAlign: "center" }}
+            >
+              ⬇ Download NSE CSV
+            </a>
+            <div style={{ color: "#3f3f46", fontSize: 11, fontFamily: "monospace", wordBreak: "break-all" }}>
+              {nseUrl.split("/").pop()}
+            </div>
+          </div>
+
+          {/* Step 2 — Drop */}
+          <div
+            style={{
+              border: `2px dashed ${dragging ? "#22c55e" : data ? "#22c55e55" : "#3f3f46"}`,
+              borderRadius: 8, padding: "28px 24px", textAlign: "center",
+              cursor: "pointer", background: dragging ? "#052e16" : data ? "#041a0e" : "#0a0a0c",
+              transition: "all 0.2s", display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center", gap: 8
+            }}
+            onDragOver={(e) => { e.preventDefault(); setDragging(true); }}
+            onDragLeave={() => setDragging(false)}
+            onDrop={onDrop}
+            onClick={() => fileRef.current.click()}
+          >
+            <div style={{ fontSize: 32 }}>{data ? "✅" : "📂"}</div>
+            {data
+              ? <div style={{ color: "#22c55e", fontSize: 13 }}>{fileName} loaded<br /><span style={{ color: "#3f3f46", fontSize: 11 }}>Drop new file to refresh</span></div>
+              : <>
+                  <div style={{ color: "#71717a", fontSize: 14 }}>Step 2 — Drop CSV here</div>
+                  <div style={{ color: "#3f3f46", fontSize: 12 }}>or click to browse</div>
+                </>
+            }
+            <input ref={fileRef} type="file" accept=".csv" style={{ display: "none" }} onChange={(e) => processFile(e.target.files[0])} />
+          </div>
+        </div>
+
+        {/* Summary */}
         {data && (
-          <div style={styles.summaryGrid}>
-            <div style={styles.card}><div style={styles.cardLabel}>Watching</div><div style={{ ...styles.cardVal, color: "#fafafa" }}>{watchlist.length}</div></div>
-            <div style={styles.card}><div style={styles.cardLabel}>Data Found</div><div style={{ ...styles.cardVal, color: "#22c55e" }}>{found}</div></div>
-            <div style={styles.card}><div style={styles.cardLabel}>Not in CSV</div><div style={{ ...styles.cardVal, color: "#ef4444" }}>{notFound}</div></div>
-            <div style={styles.card}><div style={styles.cardLabel}>High Delivery</div><div style={{ ...styles.cardVal, color: "#22c55e" }}>{highDelivery}</div></div>
+          <div style={S.summaryGrid}>
+            <div style={S.card}><div style={{ fontSize: 11, color: "#52525b", textTransform: "uppercase" }}>Watching</div><div style={{ fontSize: 22, fontWeight: 700, marginTop: 4, color: "#fafafa" }}>{watchlist.length}</div></div>
+            <div style={S.card}><div style={{ fontSize: 11, color: "#52525b", textTransform: "uppercase" }}>Found</div><div style={{ fontSize: 22, fontWeight: 700, marginTop: 4, color: "#22c55e" }}>{found}</div></div>
+            <div style={S.card}><div style={{ fontSize: 11, color: "#52525b", textTransform: "uppercase" }}>Not in CSV</div><div style={{ fontSize: 22, fontWeight: 700, marginTop: 4, color: "#ef4444" }}>{notFound}</div></div>
+            <div style={S.card}><div style={{ fontSize: 11, color: "#52525b", textTransform: "uppercase" }}>High Delivery</div><div style={{ fontSize: 22, fontWeight: 700, marginTop: 4, color: "#22c55e" }}>{highDelivery}</div></div>
           </div>
         )}
 
         {/* Controls */}
-        <div style={styles.row}>
-          <input style={styles.input} placeholder="🔍 Filter watchlist..." value={search} onChange={(e) => setSearch(e.target.value)} />
-          <input style={styles.input} placeholder="Add stock symbol (e.g. INFY)" value={newStock} onChange={(e) => setNewStock(e.target.value.toUpperCase())} onKeyDown={(e) => e.key === "Enter" && addStock()} />
-          <button style={styles.btn} onClick={addStock}>+ Add</button>
+        <div style={S.row}>
+          <input style={S.input} placeholder="🔍 Filter watchlist..." value={search} onChange={(e) => setSearch(e.target.value)} />
+          <input style={S.input} placeholder="Add symbol (e.g. INFY)" value={newStock} onChange={(e) => setNewStock(e.target.value.toUpperCase())} onKeyDown={(e) => e.key === "Enter" && addStock()} />
+          <button style={S.btn} onClick={addStock}>+ Add</button>
         </div>
 
         {/* Table */}
-        <div style={styles.tableWrap}>
-          <table style={styles.table}>
+        <div style={S.tableWrap}>
+          <table style={S.table}>
             <thead>
               <tr>
-                <th style={styles.th}>Symbol</th>
-                <th style={styles.th}>Chg%</th>
-                {FIELDS.map((f) => <th key={f.key} style={styles.th}>{f.label}</th>)}
-                <th style={styles.th}>Signals</th>
-                <th style={styles.th}></th>
+                <th style={S.th}>Symbol</th>
+                <th style={S.th}>Chg%</th>
+                {FIELDS.map((f) => <th key={f.key} style={S.th}>{f.label}</th>)}
+                <th style={S.th}>Signals</th>
+                <th style={S.th}></th>
               </tr>
             </thead>
             <tbody>
-              {loading ? (
-                <tr><td colSpan={FIELDS.length + 4} style={{ ...styles.td, textAlign: "center", color: "#facc15", padding: 32 }}>⏳ Loading data...</td></tr>
-              ) : filtered.length === 0 ? (
-                <tr><td colSpan={FIELDS.length + 4} style={{ ...styles.td, textAlign: "center", color: "#3f3f46" }}>No stocks in watchlist</td></tr>
+              {!data ? (
+                <tr><td colSpan={FIELDS.length + 4} style={{ ...S.td, textAlign: "center", color: "#3f3f46", padding: 48 }}>
+                  ⬆ Download CSV and drop it above to see your stock data
+                </td></tr>
               ) : filtered.map((sym) => {
-                const row = data?.[sym];
+                const row = data[sym];
                 const pct = row ? pctChange(row) : null;
                 const signals = row ? computeSignals(row) : [];
                 return (
                   <tr key={sym}>
-                    <td style={{ ...styles.td, fontWeight: 700, color: "#fafafa" }}>{sym}</td>
-                    <td style={styles.td}>
+                    <td style={{ ...S.td, fontWeight: 700, color: "#fafafa" }}>{sym}</td>
+                    <td style={S.td}>
                       {pct != null
-                        ? <span style={styles.pct(pct)}>{pct >= 0 ? "▲" : "▼"} {Math.abs(pct).toFixed(2)}%</span>
-                        : <span style={styles.notFound}>{data ? "N/A" : "—"}</span>}
+                        ? <span style={S.pct(pct)}>{pct >= 0 ? "▲" : "▼"} {Math.abs(pct).toFixed(2)}%</span>
+                        : <span style={S.notFound}>N/A</span>}
                     </td>
                     {FIELDS.map((f) => (
-                      <td key={f.key} style={styles.td}>
+                      <td key={f.key} style={S.td}>
                         {row
                           ? <span style={
                               f.key === "DELIV_PER" && parseFloat(row[f.key]) >= 50 ? { color: "#22c55e", fontWeight: 700 }
-                              : f.key === "CLOSE_PRICE" || f.key === "AVG_PRICE" ? { color: "#ffffff", fontWeight: 700, fontSize: 14 }
+                              : f.key === "CLOSE_PRICE" || f.key === "AVG_PRICE" ? { color: "#fff", fontWeight: 700, fontSize: 14 }
                               : f.key === "HIGH_PRICE" ? { color: "#86efac" }
                               : f.key === "LOW_PRICE" ? { color: "#fca5a5" }
                               : { color: "#e4e4e7" }
                             }>{f.format(row[f.key])}</span>
-                          : <span style={styles.notFound}>{data ? "not in CSV" : "—"}</span>}
+                          : <span style={S.notFound}>not in CSV</span>}
                       </td>
                     ))}
-                    <td style={styles.td}>
+                    <td style={S.td}>
                       {signals.length === 0
                         ? <span style={{ color: "#3f3f46", fontSize: 11 }}>—</span>
-                        : signals.map((s) => <span key={s.label} style={styles.signal(s.bg, s.color)}>{s.label}</span>)}
+                        : signals.map((s) => <span key={s.label} style={S.signal(s.bg, s.color)}>{s.label}</span>)}
                     </td>
-                    <td style={styles.td}><button style={styles.btnSm} onClick={() => removeStock(sym)}>✕</button></td>
+                    <td style={S.td}><button style={S.btnSm} onClick={() => removeStock(sym)}>✕</button></td>
                   </tr>
                 );
               })}
             </tbody>
           </table>
         </div>
-
-        {/* Manual fallback */}
-        <div style={{ marginTop: 24 }}>
-          <div style={{ fontSize: 11, color: "#3f3f46", marginBottom: 10, textTransform: "uppercase", letterSpacing: "0.06em" }}>📂 Manual Override — drag CSV if backend is down</div>
-          <div
-            style={styles.dropzone}
-            onDragOver={(e) => { e.preventDefault(); setDragging(true); }}
-            onDragLeave={() => setDragging(false)}
-            onDrop={onDrop}
-            onClick={() => fileRef.current.click()}
-          >
-            <div style={{ color: "#3f3f46", fontSize: 13 }}>Drop CSV here or click to upload</div>
-            <input ref={fileRef} type="file" accept=".csv" style={{ display: "none" }} onChange={(e) => processFile(e.target.files[0])} />
-          </div>
-        </div>
-
-        <div style={{ marginTop: 8, color: "#3f3f46", fontSize: 11, textAlign: "right" }}>
-          Signal rules: High Delivery ≥50% · Volume Spike = close &gt;2% above prev close · Breakout = close ≥99% of day high
+        <div style={{ marginTop: 12, color: "#3f3f46", fontSize: 11, textAlign: "right" }}>
+          Signals: High Delivery ≥50% · Volume Spike &gt;2% above prev close · Breakout ≥99% of day high
         </div>
       </div>
     </div>
