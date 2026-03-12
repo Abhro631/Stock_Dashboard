@@ -148,7 +148,7 @@ export default function App() {
       `}</style>
 
       {/* ── HEADER ── */}
-      <div style={{ background: "linear-gradient(135deg, #080d1e 0%, #0d1526 100%)", borderBottom: "1px solid #1a2540", padding: "16px 32px", display: "flex", alignItems: "center", justifyContent: "space-between", position: "sticky", top: 0, zIndex: 20 }}>
+      <div style={{ background: "linear-gradient(135deg, #080d1e 0%, #0d1526 100%)", borderBottom: "2px solid #00d4ff33", padding: "16px 32px", display: "flex", alignItems: "center", justifyContent: "space-between", position: "sticky", top: 0, zIndex: 20 }}>
         <div style={{ display: "flex", alignItems: "center", gap: 14 }}>
           <div style={{ width: 10, height: 10, borderRadius: "50%", background: data ? "#00ff88" : "#ff4757", boxShadow: data ? "0 0 12px #00ff88" : "0 0 12px #ff4757", animation: "pulse 2s infinite" }} />
           <span style={{ fontFamily: "'Syne', sans-serif", fontSize: 20, fontWeight: 800, letterSpacing: "0.06em", background: "linear-gradient(90deg, #00d4ff, #00ff88)", WebkitBackgroundClip: "text", WebkitTextFillColor: "transparent" }}>
@@ -277,17 +277,17 @@ export default function App() {
         </div>
 
         {/* ── TABLE ── */}
-        <div style={{ overflowX: "auto", borderRadius: 12, border: "1px solid #1a2540" }}>
+        <div style={{ overflowX: "auto", borderRadius: 12, border: "1px solid #1a2540", maxHeight: "72vh", overflowY: "auto" }}>
           <table style={{ width: "100%", borderCollapse: "collapse", fontSize: 12 }}>
-            <thead>
+            <thead style={{ position: "sticky", top: 0, zIndex: 10 }}>
               <tr>
                 {["#", "Symbol", "Chg %", ...FIELDS.map(f => f.label), "Signals", ""].map((h, i) => (
                   <th key={i} style={{
                     padding: "11px 14px", textAlign: "left",
                     background: "linear-gradient(135deg, #080d1e, #0d1526)",
                     color: "#00d4ff", fontWeight: 600, letterSpacing: "0.08em",
-                    fontSize: 10, borderBottom: "1px solid #1a2540",
-                    whiteSpace: "nowrap", textTransform: "uppercase"
+                    fontSize: 10, borderBottom: "2px solid #00d4ff33",
+                    whiteSpace: "nowrap", textTransform: "uppercase", position: "sticky", top: 0, boxShadow: "0 2px 10px rgba(0,0,0,0.8)"
                   }}>{h}</th>
                 ))}
               </tr>
