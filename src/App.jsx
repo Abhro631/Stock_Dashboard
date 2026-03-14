@@ -105,44 +105,20 @@ function calculateRSI(closes, period = 14) {
   return parseFloat((100 - 100 / (1 + rs)).toFixed(2));
 }
 
-// ─── Yahoo Finance fetcher ───────────────────────────────────────────────────
-async function fetchYahooQuote(symbol) {
-  const ySym = `${symbol}.NS`;
-  // Fetch current quote + 30d history in parallel
-  const [quoteRes, histRes] = await Promise.all([
-    fetch(`https://query1.finance.yahoo.com/v8/finance/chart/${ySym}?interval=1d&range=1d`),
-    fetch(`https://query1.finance.yahoo.com/v8/finance/chart/${ySym}?interval=1d&range=1mo`)
-  ]);
-  const [quoteData, histData] = await Promise.all([quoteRes.json(), histRes.json()]);
-
-  const result = quoteData?.chart?.result?.[0];
-  const histResult = histData?.chart?.result?.[0];
-  if (!result) return null;
-
-  const meta = result.meta;
-  const closes = histResult?.indicators?.quote?.[0]?.close?.filter(Boolean) || [];
-  const rsi = calculateRSI(closes);
-
-  // VWAP approximation: (H+L+C)/3
-  const h = meta.regularMarketDayHigh;
-  const l = meta.regularMarketDayLow;
-  const c = meta.regularMarketPrice;
-  const vwap = h && l && c ? ((h + l + c) / 3).toFixed(2) : null;
-
-  return {
-    symbol,
-    ltp:       meta.regularMarketPrice,
-    change:    meta.regularMarketPrice - meta.previousClose,
-    changePct: ((meta.regularMarketPrice - meta.previousClose) / meta.previousClose * 100).toFixed(2),
-    open:      meta.regularMarketOpen,
-    high:      h,
-    low:       l,
-    prevClose: meta.previousClose,
-    volume:    meta.regularMarketVolume,
-    vwap,
-    rsi,
-    updatedAt: new Date().toLocaleTimeString("en-IN"),
-  };
+// ─── Fetch live data via YOUR Vercel API (server-side, no CORS) ──────────────
+async function fetchAllLiveFromVercel(symbols) {
+  // Split into chunks of 50 to keep URL length reasonable
+  const chunkSize = 50;
+  const allData = {};
+  for (let i = 0; i < symbols.length; i += chunkSize) {
+    const chunk = symbols.slice(i, i + chunkSize);
+    const res = await fetch(`/api/live?symbols=${chunk.join(",")}`);
+    if (!res.ok) throw new Error(`API error: ${res.status}`);
+    const json = await res.json();
+    if (!json.success) throw new Error(json.error || "API failed");
+    Object.assign(allData, json.data);
+  }
+  return allData;
 }
 
 // ─── Shared styles ───────────────────────────────────────────────────────────
@@ -191,6 +167,7 @@ export default function App() {
   const [autoRefresh,  setAutoRefresh]  = useState(false);
   const [countdown,    setCountdown]    = useState(30);
   const [liveSearch,   setLiveSearch]   = useState("");
+  const [rsiLoading,   setRsiLoading]   = useState(false);
   const intervalRef = useRef(null);
   const countRef    = useRef(null);
   const fileRef     = useRef();
@@ -216,25 +193,25 @@ export default function App() {
     processFile(e.dataTransfer.files[0]);
   }, [processFile]);
 
-  // ── Live fetch ──
+  // ── Live fetch via Vercel API ──
   const fetchAllLive = useCallback(async () => {
     setLiveLoading(true);
+    setRsiLoading(true);
     setLiveError("");
-    const results = {};
-    // Fetch in batches of 5 to avoid rate limits
-    const batch = 5;
-    for (let i = 0; i < watchlist.length; i += batch) {
-      const chunk = watchlist.slice(i, i + batch);
-      await Promise.all(chunk.map(async (sym) => {
-        try {
-          const q = await fetchYahooQuote(sym);
-          if (q) results[sym] = q;
-        } catch (_) {}
-      }));
+    try {
+      const raw = await fetchAllLiveFromVercel(watchlist);
+      // Add updatedAt timestamp to each stock
+      const withTime = {};
+      Object.keys(raw).forEach(sym => {
+        withTime[sym] = { ...raw[sym], updatedAt: new Date().toLocaleTimeString("en-IN") };
+      });
+      setLiveData(withTime);
+      setLastRefresh(new Date().toLocaleTimeString("en-IN"));
+    } catch (e) {
+      setLiveError(`${e.message}`);
     }
-    setLiveData(results);
-    setLastRefresh(new Date().toLocaleTimeString("en-IN"));
     setLiveLoading(false);
+    setRsiLoading(false);
   }, [watchlist]);
 
   // Auto-refresh logic
@@ -446,6 +423,13 @@ export default function App() {
 
               {liveError && <div style={{ marginTop:12, color:"#ff4757", fontSize:12 }}>⚠️ {liveError}</div>}
 
+              {!liveLoading && liveFound > 0 && (
+                <div style={{ marginTop:10, fontSize:12, color:"#8892b0" }}>
+                  ✅ <span style={{ color:"#00ff88" }}>{liveFound} stocks</span> found on Yahoo Finance ·
+                  <span style={{ color:"#ff4757" }}> {watchlist.length - liveFound} stocks</span> not listed on Yahoo (small/illiquid NSE stocks)
+                </div>
+              )}
+
               {!liveLoading && liveFound === 0 && (
                 <div style={{ marginTop:12, fontSize:12, color:"#8892b0" }}>
                   💡 Click <strong style={{ color:"#00d4ff" }}>Fetch Live Data</strong> to load LTP, VWAP, RSI for all your stocks from Yahoo Finance. Enable <strong style={{ color:"#00ff88" }}>Auto Refresh</strong> to update every 30 seconds automatically.
@@ -490,7 +474,9 @@ export default function App() {
                       <tr key={sym} style={{ background: idx%2===0 ? "#060b1a" : "#080d1e" }}>
                         <td style={{ ...TD, color:"#3d4f6e", fontSize:11 }}>{idx+1}</td>
                         <td style={{ ...TD, fontWeight:700, color:"#e8eaf6" }}>{sym}</td>
-                        <td style={{ ...TD, color:"#ffffff", fontWeight:700, fontSize:13 }}>{d ? `₹${Number(d.ltp).toFixed(2)}` : <span style={{ color:"#2a3550" }}>—</span>}</td>
+                        <td style={{ ...TD, color:"#ffffff", fontWeight:700, fontSize:13 }}>
+                          {d ? `₹${Number(d.ltp).toFixed(2)}` : <span style={{ color:"#2a3550", fontSize:10 }}>not on Yahoo</span>}
+                        </td>
                         <td style={TD}>
                           {d ? <span style={{ color:up?"#00ff88":"#ff4757", fontWeight:700, background:up?"rgba(0,255,136,0.1)":"rgba(255,71,87,0.1)", padding:"2px 8px", borderRadius:4 }}>
                             {up?"▲":"▼"} {Math.abs(d.changePct)}%
@@ -501,7 +487,7 @@ export default function App() {
                         <td style={{ ...TD, color:"#00ff88" }}>{d ? `₹${Number(d.high).toFixed(2)}` : <span style={{ color:"#2a3550" }}>—</span>}</td>
                         <td style={{ ...TD, color:"#ff6b81" }}>{d ? `₹${Number(d.low).toFixed(2)}` : <span style={{ color:"#2a3550" }}>—</span>}</td>
                         <td style={{ ...TD, color:"#c5cae9" }}>{d ? Number(d.volume).toLocaleString("en-IN") : <span style={{ color:"#2a3550" }}>—</span>}</td>
-                        <td style={TD}><RsiBar val={d?.rsi} /></td>
+                        <td style={TD}>{rsiLoading && !d?.rsi ? <span style={{color:'#ffd700',fontSize:11}}>⏳ calc...</span> : <RsiBar val={d?.rsi} />}</td>
                         <td style={{ ...TD, color:"#3d4f6e", fontSize:11 }}>{d?.updatedAt || "—"}</td>
                       </tr>
                     );
