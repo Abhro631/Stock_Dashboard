@@ -1,4 +1,4 @@
-import { useState, useCallback, useRef, useEffect } from "react";
+import { useState, useCallback, useRef } from "react";
 
 const DEFAULT_WATCHLIST = [
   "ADANIPOWER","ABCAPITAL","ASHOKLEY","BHARATCOAL","BLIL","BEL","BPCL",
@@ -22,7 +22,6 @@ const DEFAULT_WATCHLIST = [
   "ARABIAN","PIOTEX","ESSEX","APL","NGIND","PARAGBOS"
 ];
 
-// ─── CSV parsing ────────────────────────────────────────────────────────────
 const FIELDS = [
   { key: "CLOSE_PRICE",    label: "LTP",          format: (v) => v != null ? `₹${Number(v).toFixed(2)}` : "—" },
   { key: "AVG_PRICE",      label: "VWAP",         format: (v) => v != null ? `₹${Number(v).toFixed(2)}` : "—" },
@@ -85,43 +84,6 @@ function getMaxDate() {
   return now.toISOString().split("T")[0];
 }
 
-// ─── RSI Calculator ─────────────────────────────────────────────────────────
-function calculateRSI(closes, period = 14) {
-  if (closes.length < period + 1) return null;
-  let gains = 0, losses = 0;
-  for (let i = 1; i <= period; i++) {
-    const diff = closes[i] - closes[i - 1];
-    if (diff >= 0) gains += diff; else losses -= diff;
-  }
-  let avgGain = gains / period;
-  let avgLoss = losses / period;
-  for (let i = period + 1; i < closes.length; i++) {
-    const diff = closes[i] - closes[i - 1];
-    avgGain = (avgGain * (period - 1) + (diff >= 0 ? diff : 0)) / period;
-    avgLoss = (avgLoss * (period - 1) + (diff < 0 ? -diff : 0)) / period;
-  }
-  if (avgLoss === 0) return 100;
-  const rs = avgGain / avgLoss;
-  return parseFloat((100 - 100 / (1 + rs)).toFixed(2));
-}
-
-// ─── Fetch live data via YOUR Vercel API (server-side, no CORS) ──────────────
-async function fetchAllLiveFromVercel(symbols) {
-  // Split into chunks of 50 to keep URL length reasonable
-  const chunkSize = 50;
-  const allData = {};
-  for (let i = 0; i < symbols.length; i += chunkSize) {
-    const chunk = symbols.slice(i, i + chunkSize);
-    const res = await fetch(`/api/live?symbols=${chunk.join(",")}`);
-    if (!res.ok) throw new Error(`API error: ${res.status}`);
-    const json = await res.json();
-    if (!json.success) throw new Error(json.error || "API failed");
-    Object.assign(allData, json.data);
-  }
-  return allData;
-}
-
-// ─── Shared styles ───────────────────────────────────────────────────────────
 const TH = {
   padding: "11px 14px", textAlign: "left",
   background: "linear-gradient(135deg, #080d1e, #0d1526)",
@@ -132,22 +94,8 @@ const TH = {
 };
 const TD = { padding: "10px 14px", borderBottom: "1px solid #0d1526", whiteSpace: "nowrap" };
 
-function RsiBar({ val }) {
-  if (val == null) return <span style={{ color: "#3d4f6e" }}>—</span>;
-  const color = val >= 70 ? "#ff4757" : val <= 30 ? "#00ff88" : "#ffd700";
-  const label = val >= 70 ? "OB" : val <= 30 ? "OS" : "OK";
-  return (
-    <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
-      <div style={{ width: 60, height: 6, background: "#1a2540", borderRadius: 3, overflow: "hidden" }}>
-        <div style={{ width: `${val}%`, height: "100%", background: color, borderRadius: 3, transition: "width 0.5s" }} />
-      </div>
-      <span style={{ color, fontWeight: 700, fontSize: 12 }}>{val}</span>
-      <span style={{ fontSize: 9, color, background: `${color}22`, padding: "1px 5px", borderRadius: 3 }}>{label}</span>
-    </div>
-  );
-}
+const GOOGLE_SHEET_URL = "https://docs.google.com/spreadsheets/d/e/2PACX-1vRNjwQsaeh00tG6yjCwc1eA-YiDlEM9MInIvyc-5e7ZJYx1KPj11BsPqZp6PDcevExDW4FlgY8ROOj-/pubhtml?widget=true&headers=false";
 
-// ─── MAIN APP ────────────────────────────────────────────────────────────────
 export default function App() {
   const [tab,       setTab]       = useState("bhav");
   const [data,      setData]      = useState(null);
@@ -158,21 +106,8 @@ export default function App() {
   const [search,    setSearch]    = useState("");
   const [fileName,  setFileName]  = useState(null);
   const [selDate,   setSelDate]   = useState(getDefaultDate());
+  const fileRef = useRef();
 
-  // Live tab state
-  const [liveData,     setLiveData]     = useState({});
-  const [liveLoading,  setLiveLoading]  = useState(false);
-  const [liveError,    setLiveError]    = useState("");
-  const [lastRefresh,  setLastRefresh]  = useState(null);
-  const [autoRefresh,  setAutoRefresh]  = useState(false);
-  const [countdown,    setCountdown]    = useState(30);
-  const [liveSearch,   setLiveSearch]   = useState("");
-  const [rsiLoading,   setRsiLoading]   = useState(false);
-  const intervalRef = useRef(null);
-  const countRef    = useRef(null);
-  const fileRef     = useRef();
-
-  // ── CSV processing ──
   const processFile = useCallback((file) => {
     if (!file) return;
     setFileName(file.name);
@@ -193,40 +128,6 @@ export default function App() {
     processFile(e.dataTransfer.files[0]);
   }, [processFile]);
 
-  // ── Live fetch via Vercel API ──
-  const fetchAllLive = useCallback(async () => {
-    setLiveLoading(true);
-    setRsiLoading(true);
-    setLiveError("");
-    try {
-      const raw = await fetchAllLiveFromVercel(watchlist);
-      // Add updatedAt timestamp to each stock
-      const withTime = {};
-      Object.keys(raw).forEach(sym => {
-        withTime[sym] = { ...raw[sym], updatedAt: new Date().toLocaleTimeString("en-IN") };
-      });
-      setLiveData(withTime);
-      setLastRefresh(new Date().toLocaleTimeString("en-IN"));
-    } catch (e) {
-      setLiveError(`${e.message}`);
-    }
-    setLiveLoading(false);
-    setRsiLoading(false);
-  }, [watchlist]);
-
-  // Auto-refresh logic
-  useEffect(() => {
-    if (autoRefresh) {
-      setCountdown(30);
-      intervalRef.current = setInterval(() => { fetchAllLive(); setCountdown(30); }, 30000);
-      countRef.current    = setInterval(() => setCountdown(c => c > 0 ? c - 1 : 30), 1000);
-    } else {
-      clearInterval(intervalRef.current);
-      clearInterval(countRef.current);
-    }
-    return () => { clearInterval(intervalRef.current); clearInterval(countRef.current); };
-  }, [autoRefresh, fetchAllLive]);
-
   const addStock = () => {
     const s = newStock.trim().toUpperCase();
     if (s && !watchlist.includes(s)) setWatchlist([...watchlist, s]);
@@ -234,18 +135,15 @@ export default function App() {
   };
   const removeStock = (sym) => setWatchlist(watchlist.filter((s) => s !== sym));
 
-  const filtered     = watchlist.filter((s) => s.includes(search.toUpperCase()));
-  const liveFiltered = watchlist.filter((s) => s.includes(liveSearch.toUpperCase()));
-  const found        = data ? filtered.filter((s) => data[s]).length : 0;
-  const notFound     = data ? filtered.filter((s) => !data[s]).length : 0;
-  const highDel      = data ? filtered.filter((s) => data[s] && parseFloat(data[s].DELIV_PER) >= 50).length : 0;
-  const nseUrl       = getNseUrlForDate(selDate);
-  const liveFound    = Object.keys(liveData).length;
+  const filtered = watchlist.filter((s) => s.includes(search.toUpperCase()));
+  const found    = data ? filtered.filter((s) => data[s]).length : 0;
+  const notFound = data ? filtered.filter((s) => !data[s]).length : 0;
+  const highDel  = data ? filtered.filter((s) => data[s] && parseFloat(data[s].DELIV_PER) >= 50).length : 0;
+  const nseUrl   = getNseUrlForDate(selDate);
 
   const CSS = `
     @import url('https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;500;600;700&family=Syne:wght@700;800&display=swap');
     @keyframes pulse  { 0%,100%{opacity:1} 50%{opacity:0.3} }
-    @keyframes spin   { to{transform:rotate(360deg)} }
     @keyframes fadein { from{opacity:0;transform:translateY(6px)} to{opacity:1;transform:none} }
     * { box-sizing: border-box; }
     ::-webkit-scrollbar { width:6px; height:6px; }
@@ -264,40 +162,32 @@ export default function App() {
     <div style={{ minHeight:"100vh", background:"#050810", color:"#e8eaf6", fontFamily:"'IBM Plex Mono','Fira Mono',monospace" }}>
       <style>{CSS}</style>
 
-      {/* ── HEADER ── */}
+      {/* HEADER */}
       <div style={{ background:"linear-gradient(135deg,#080d1e,#0d1526)", borderBottom:"1px solid #1a2540", padding:"16px 32px", display:"flex", alignItems:"center", justifyContent:"space-between", position:"sticky", top:0, zIndex:20 }}>
         <div style={{ display:"flex", alignItems:"center", gap:14 }}>
-          <div style={{ width:10, height:10, borderRadius:"50%", background: tab==="live" && liveFound > 0 ? "#00ff88" : data ? "#00d4ff" : "#ff4757", boxShadow:`0 0 12px ${tab==="live" && liveFound > 0 ? "#00ff88" : data ? "#00d4ff" : "#ff4757"}`, animation:"pulse 2s infinite" }} />
+          <div style={{ width:10, height:10, borderRadius:"50%", background: data ? "#00d4ff" : "#ff4757", boxShadow:`0 0 12px ${data ? "#00d4ff" : "#ff4757"}`, animation:"pulse 2s infinite" }} />
           <span style={{ fontFamily:"'Syne',sans-serif", fontSize:20, fontWeight:800, letterSpacing:"0.06em", background:"linear-gradient(90deg,#00d4ff,#00ff88)", WebkitBackgroundClip:"text", WebkitTextFillColor:"transparent" }}>
             NSE BHAV DASHBOARD
           </span>
         </div>
         <div style={{ display:"flex", gap:8, alignItems:"center", flexWrap:"wrap" }}>
-          {csvDate   && <span style={{ fontSize:11, background:"#0d1a30", border:"1px solid #00d4ff44", padding:"3px 10px", borderRadius:4, color:"#00d4ff" }}>📅 {csvDate}</span>}
-          {fileName  && <span style={{ fontSize:11, background:"#0d1a30", border:"1px solid #00ff8844", padding:"3px 10px", borderRadius:4, color:"#00ff88" }}>📂 {fileName}</span>}
-          {lastRefresh && tab==="live" && <span style={{ fontSize:11, background:"#0d1a30", border:"1px solid #ffd70044", padding:"3px 10px", borderRadius:4, color:"#ffd700" }}>🔄 {lastRefresh}</span>}
+          {csvDate  && <span style={{ fontSize:11, background:"#0d1a30", border:"1px solid #00d4ff44", padding:"3px 10px", borderRadius:4, color:"#00d4ff" }}>📅 {csvDate}</span>}
+          {fileName && <span style={{ fontSize:11, background:"#0d1a30", border:"1px solid #00ff8844", padding:"3px 10px", borderRadius:4, color:"#00ff88" }}>📂 {fileName}</span>}
           <span style={{ fontSize:11, background:"#0d1a30", border:"1px solid #1e2a4a", padding:"3px 10px", borderRadius:4, color:"#8892b0" }}>{watchlist.length} stocks</span>
         </div>
       </div>
 
       <div style={{ padding:"24px 32px", maxWidth:1600, margin:"0 auto" }}>
 
-        {/* ── TABS ── */}
+        {/* TABS */}
         <div style={{ display:"flex", gap:10, marginBottom:24 }}>
-          <button className={`tab-btn ${tab==="bhav" ? "tab-active" : "tab-inactive"}`} onClick={() => setTab("bhav")}>
-            📊 Bhav Data
-          </button>
-          <button className={`tab-btn ${tab==="live" ? "tab-active" : "tab-inactive"}`} onClick={() => setTab("live")}>
-            ⚡ Live Data
-          </button>
+          <button className={`tab-btn ${tab==="bhav" ? "tab-active" : "tab-inactive"}`} onClick={() => setTab("bhav")}>📊 Bhav Data</button>
+          <button className={`tab-btn ${tab==="live" ? "tab-active" : "tab-inactive"}`} onClick={() => setTab("live")}>⚡ Live Prices</button>
         </div>
 
-        {/* ══════════════════════════════════════════════════
-            TAB 1 — BHAV DATA
-        ══════════════════════════════════════════════════ */}
+        {/* TAB 1 — BHAV DATA */}
         {tab === "bhav" && (
           <>
-            {/* Date + Download + Drop */}
             <div style={{ display:"grid", gridTemplateColumns:"300px 1fr", gap:16, marginBottom:24 }}>
               <div style={{ background:"linear-gradient(135deg,#0a0f24,#0d1526)", border:"1px solid #1a2540", borderRadius:12, padding:"20px", display:"flex", flexDirection:"column", gap:14 }}>
                 <div style={{ fontSize:11, color:"#00d4ff", textTransform:"uppercase", letterSpacing:"0.1em", fontWeight:600 }}>Step 1 — Select Date</div>
@@ -322,7 +212,6 @@ export default function App() {
               </div>
             </div>
 
-            {/* Summary */}
             {data && (
               <div style={{ display:"grid", gridTemplateColumns:"repeat(4,1fr)", gap:12, marginBottom:20 }}>
                 {[{l:"Watching",v:watchlist.length,c:"#00d4ff"},{l:"Found",v:found,c:"#00ff88"},{l:"Not in CSV",v:notFound,c:"#ff4757"},{l:"High Del",v:highDel,c:"#ffd700"}].map(x=>(
@@ -334,14 +223,12 @@ export default function App() {
               </div>
             )}
 
-            {/* Controls */}
             <div style={{ display:"flex", gap:10, marginBottom:16, flexWrap:"wrap" }}>
               <input style={{ background:"#0a0f24", border:"1px solid #1e2a4a", borderRadius:6, padding:"9px 14px", color:"#e8eaf6", fontSize:13, outline:"none", fontFamily:"inherit", flex:2, minWidth:160 }} placeholder="🔍 Search stocks..." value={search} onChange={(e)=>setSearch(e.target.value)} />
               <input style={{ background:"#0a0f24", border:"1px solid #1e2a4a", borderRadius:6, padding:"9px 14px", color:"#e8eaf6", fontSize:13, outline:"none", fontFamily:"inherit", flex:2, minWidth:160 }} placeholder="Add symbol..." value={newStock} onChange={(e)=>setNewStock(e.target.value.toUpperCase())} onKeyDown={(e)=>e.key==="Enter"&&addStock()} />
               <button onClick={addStock} style={{ background:"linear-gradient(135deg,#00d4ff,#0088ff)", color:"#050810", border:"none", borderRadius:6, padding:"9px 20px", cursor:"pointer", fontWeight:700, fontSize:13, fontFamily:"inherit" }}>+ Add</button>
             </div>
 
-            {/* Bhav Table */}
             <div style={{ overflowX:"auto", borderRadius:12, border:"1px solid #1a2540", maxHeight:"65vh", overflowY:"auto" }}>
               <table style={{ width:"100%", borderCollapse:"collapse", fontSize:12 }}>
                 <thead>
@@ -390,113 +277,34 @@ export default function App() {
           </>
         )}
 
-        {/* ══════════════════════════════════════════════════
-            TAB 2 — LIVE DATA
-        ══════════════════════════════════════════════════ */}
+        {/* TAB 2 — LIVE PRICES (Google Sheet Embedded) */}
         {tab === "live" && (
           <>
-            {/* Live controls */}
-            <div style={{ background:"linear-gradient(135deg,#0a0f24,#0d1526)", border:"1px solid #1a2540", borderRadius:12, padding:"20px 24px", marginBottom:20 }}>
-              <div style={{ display:"flex", alignItems:"center", gap:12, flexWrap:"wrap" }}>
-                <button
-                  onClick={fetchAllLive} disabled={liveLoading}
-                  style={{ background:"linear-gradient(135deg,#00d4ff,#00ff88)", color:"#050810", border:"none", borderRadius:8, padding:"10px 24px", cursor:liveLoading?"not-allowed":"pointer", fontWeight:700, fontSize:13, fontFamily:"inherit", opacity:liveLoading?0.7:1 }}
-                >
-                  {liveLoading ? "⏳ Fetching..." : "🔄 Fetch Live Data"}
-                </button>
-
-                <button
-                  onClick={()=>setAutoRefresh(a=>!a)}
-                  style={{ background: autoRefresh ? "rgba(255,71,87,0.15)" : "rgba(0,255,136,0.1)", color: autoRefresh ? "#ff4757" : "#00ff88", border:`1px solid ${autoRefresh?"#ff475755":"#00ff8855"}`, borderRadius:8, padding:"10px 20px", cursor:"pointer", fontWeight:700, fontSize:13, fontFamily:"inherit" }}
-                >
-                  {autoRefresh ? `⏸ Stop Auto (${countdown}s)` : "▶ Auto Refresh (30s)"}
-                </button>
-
-                {lastRefresh && (
-                  <span style={{ fontSize:12, color:"#8892b0" }}>Last updated: <span style={{ color:"#ffd700" }}>{lastRefresh}</span></span>
-                )}
-
-                <div style={{ marginLeft:"auto" }}>
-                  <input style={{ background:"#080d1e", border:"1px solid #1e2a4a", borderRadius:6, padding:"9px 14px", color:"#e8eaf6", fontSize:13, outline:"none", fontFamily:"inherit", width:220 }} placeholder="🔍 Search stocks..." value={liveSearch} onChange={(e)=>setLiveSearch(e.target.value)} />
+            <div style={{ background:"linear-gradient(135deg,#0a0f24,#0d1526)", border:"1px solid #1a2540", borderRadius:12, padding:"16px 24px", marginBottom:16, display:"flex", alignItems:"center", justifyContent:"space-between", flexWrap:"wrap", gap:12 }}>
+              <div style={{ display:"flex", alignItems:"center", gap:12 }}>
+                <div style={{ width:10, height:10, borderRadius:"50%", background:"#00ff88", boxShadow:"0 0 8px #00ff88", animation:"pulse 2s infinite" }} />
+                <div>
+                  <div style={{ color:"#00ff88", fontWeight:700, fontSize:13 }}>Live NSE Prices — Powered by Google Finance</div>
+                  <div style={{ color:"#8892b0", fontSize:11, marginTop:2 }}>Auto-updates during market hours (9:15 AM – 3:30 PM IST) · All 130 stocks · LTP · Change · High · Low · 52W High/Low</div>
                 </div>
               </div>
-
-              {liveError && <div style={{ marginTop:12, color:"#ff4757", fontSize:12 }}>⚠️ {liveError}</div>}
-
-              {!liveLoading && liveFound > 0 && (
-                <div style={{ marginTop:10, fontSize:12, color:"#8892b0" }}>
-                  ✅ <span style={{ color:"#00ff88" }}>{liveFound} stocks</span> found on Yahoo Finance ·
-                  <span style={{ color:"#ff4757" }}> {watchlist.length - liveFound} stocks</span> not listed on Yahoo (small/illiquid NSE stocks)
-                </div>
-              )}
-
-              {!liveLoading && liveFound === 0 && (
-                <div style={{ marginTop:12, fontSize:12, color:"#8892b0" }}>
-                  💡 Click <strong style={{ color:"#00d4ff" }}>Fetch Live Data</strong> to load LTP, VWAP, RSI for all your stocks from Yahoo Finance. Enable <strong style={{ color:"#00ff88" }}>Auto Refresh</strong> to update every 30 seconds automatically.
-                </div>
-              )}
+              <button
+                onClick={() => window.open(GOOGLE_SHEET_URL, "_blank")}
+                style={{ background:"#1a2540", color:"#00d4ff", border:"1px solid #00d4ff44", borderRadius:6, padding:"6px 16px", cursor:"pointer", fontSize:12, fontFamily:"inherit", fontWeight:600 }}
+              >
+                ↗ Open Full Screen
+              </button>
             </div>
 
-            {/* Summary */}
-            {liveFound > 0 && (
-              <div style={{ display:"grid", gridTemplateColumns:"repeat(4,1fr)", gap:12, marginBottom:20 }}>
-                {[
-                  { l:"Live Stocks", v:liveFound, c:"#00ff88" },
-                  { l:"Gainers", v:Object.values(liveData).filter(d=>d.changePct>0).length, c:"#00ff88" },
-                  { l:"Losers",  v:Object.values(liveData).filter(d=>d.changePct<0).length, c:"#ff4757" },
-                  { l:"RSI > 70", v:Object.values(liveData).filter(d=>d.rsi>=70).length, c:"#ffd700" },
-                ].map(x=>(
-                  <div key={x.l} style={{ background:"linear-gradient(135deg,#0a0f24,#0d1526)", border:`1px solid ${x.c}33`, borderRadius:10, padding:"14px 18px" }}>
-                    <div style={{ fontSize:11, color:"#8892b0", textTransform:"uppercase" }}>{x.l}</div>
-                    <div style={{ fontSize:26, fontWeight:700, marginTop:4, color:x.c, fontFamily:"'Syne',sans-serif" }}>{x.v}</div>
-                  </div>
-                ))}
-              </div>
-            )}
-
-            {/* Live Table */}
-            <div style={{ overflowX:"auto", borderRadius:12, border:"1px solid #1a2540", maxHeight:"65vh", overflowY:"auto" }}>
-              <table style={{ width:"100%", borderCollapse:"collapse", fontSize:12 }}>
-                <thead>
-                  <tr>{["#","Symbol","LTP","Chg %","VWAP","Open","High","Low","Volume","RSI (14)","Updated"].map((h,i)=>(
-                    <th key={i} style={TH}>{h}</th>
-                  ))}</tr>
-                </thead>
-                <tbody>
-                  {liveFound === 0 ? (
-                    <tr><td colSpan={11} style={{ ...TD, textAlign:"center", padding:56, color:"#3d4f6e", fontSize:14 }}>
-                      {liveLoading ? "⏳ Fetching live data from Yahoo Finance..." : "⬆ Click Fetch Live Data to load prices"}
-                    </td></tr>
-                  ) : liveFiltered.map((sym, idx) => {
-                    const d = liveData[sym];
-                    const up = d && parseFloat(d.changePct) >= 0;
-                    return (
-                      <tr key={sym} style={{ background: idx%2===0 ? "#060b1a" : "#080d1e" }}>
-                        <td style={{ ...TD, color:"#3d4f6e", fontSize:11 }}>{idx+1}</td>
-                        <td style={{ ...TD, fontWeight:700, color:"#e8eaf6" }}>{sym}</td>
-                        <td style={{ ...TD, color:"#ffffff", fontWeight:700, fontSize:13 }}>
-                          {d ? `₹${Number(d.ltp).toFixed(2)}` : <span style={{ color:"#2a3550", fontSize:10 }}>not on Yahoo</span>}
-                        </td>
-                        <td style={TD}>
-                          {d ? <span style={{ color:up?"#00ff88":"#ff4757", fontWeight:700, background:up?"rgba(0,255,136,0.1)":"rgba(255,71,87,0.1)", padding:"2px 8px", borderRadius:4 }}>
-                            {up?"▲":"▼"} {Math.abs(d.changePct)}%
-                          </span> : <span style={{ color:"#2a3550" }}>—</span>}
-                        </td>
-                        <td style={{ ...TD, color:"#00d4ff", fontWeight:600 }}>{d ? `₹${Number(d.vwap).toFixed(2)}` : <span style={{ color:"#2a3550" }}>—</span>}</td>
-                        <td style={{ ...TD, color:"#c5cae9" }}>{d ? `₹${Number(d.open).toFixed(2)}` : <span style={{ color:"#2a3550" }}>—</span>}</td>
-                        <td style={{ ...TD, color:"#00ff88" }}>{d ? `₹${Number(d.high).toFixed(2)}` : <span style={{ color:"#2a3550" }}>—</span>}</td>
-                        <td style={{ ...TD, color:"#ff6b81" }}>{d ? `₹${Number(d.low).toFixed(2)}` : <span style={{ color:"#2a3550" }}>—</span>}</td>
-                        <td style={{ ...TD, color:"#c5cae9" }}>{d ? Number(d.volume).toLocaleString("en-IN") : <span style={{ color:"#2a3550" }}>—</span>}</td>
-                        <td style={TD}>{rsiLoading && !d?.rsi ? <span style={{color:'#ffd700',fontSize:11}}>⏳ calc...</span> : <RsiBar val={d?.rsi} />}</td>
-                        <td style={{ ...TD, color:"#3d4f6e", fontSize:11 }}>{d?.updatedAt || "—"}</td>
-                      </tr>
-                    );
-                  })}
-                </tbody>
-              </table>
+            <div style={{ borderRadius:12, overflow:"hidden", border:"1px solid #1a2540" }}>
+              <iframe
+                src={GOOGLE_SHEET_URL}
+                style={{ width:"100%", height:"78vh", border:"none", display:"block" }}
+                title="NSE Live Stock Prices"
+              />
             </div>
-            <div style={{ marginTop:10, color:"#2a3550", fontSize:11, textAlign:"right" }}>
-              Data from Yahoo Finance · RSI(14) calculated from 30-day history · OB=Overbought ≥70 · OS=Oversold ≤30
+            <div style={{ marginTop:8, color:"#2a3550", fontSize:11, textAlign:"right" }}>
+              Data from Google Finance · Updates automatically · Press Ctrl+Shift+F9 to force refresh
             </div>
           </>
         )}
